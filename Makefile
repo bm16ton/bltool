@@ -1,6 +1,6 @@
 CC := gcc
 LIB_DIRECTORY := -L/usr/lib/x86_64-linux-gnu
-INC_DIRECTORY := -I/usr/include/bluetooth -I/usr/include -I/usr/lib/gcc/x86_64-linux-gnu/13/include
+INC_DIRECTORY := -I/usr/include/bluetooth -I/usr/include 
 LIB := /usr/lib/x86_64-linux-gnu/libbluetooth.so.3
 CFLAGS := -Wall -fPIC
 
