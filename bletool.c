@@ -17,9 +17,10 @@
 #include <hci_lib.h>
 
 #define DEVICE_NAME   "hci0"
-#define DEFAULT_ADV_HEADER "1F"  //hrm, doesnt seemm to matter if larger then msg, needs testing
+#define DEFAULT_ADV_HEADER "1F"
 #define MAX_PKT_SIZE 32
 
+int debugon = 0;
 char hint[] = {"hci0"};
 static struct hci_filter ofilter;
 static volatile int signal_received = 0;
@@ -32,6 +33,9 @@ int puborran = 0x01;  //00 for pub
 int ownpuborran = 0x01;
 int peermap = 0x07;
 int filtpol = 0x00;
+uint8_t cls[3];
+
+static int open_device(char *dev_name);
 
 static void sigint_handler(int sig) {
     signal_received = sig;
@@ -49,18 +53,27 @@ static void hex_dump(char *pref, unsigned char *buf, int len)
     printf("\n");
 }
 
-static int open_device(char *dev_name)
+int hci_read_class_save(int dd, uint8_t *cls, int to)
 {
-    int dev_id = hci_devid(dev_name);
-    if (dev_id < 0)
-        dev_id = hci_get_route(NULL);
+	read_class_of_dev_rp rp;
+	struct hci_request rq;
 
-    int dd = hci_open_dev(dev_id);
-    if (dd < 0) {
-        perror("Could not open device");
-        exit(1);
-    }
-    return dd;
+	memset(&rq, 0, sizeof(rq));
+	rq.ogf    = OGF_HOST_CTL;
+	rq.ocf    = OCF_READ_CLASS_OF_DEV;
+	rq.rparam = &rp;
+	rq.rlen   = READ_CLASS_OF_DEV_RP_SIZE;
+
+	if (hci_send_req(dd, &rq, to) < 0)
+		return -1;
+
+	if (rp.status) {
+		errno = EIO;
+		return -1;
+	}
+
+	memcpy(cls, rp.dev_class, 3);
+	return 0;
 }
 
 void ctrl_command(uint8_t ogf, uint16_t ocf, char *data) {
@@ -76,10 +89,10 @@ void ctrl_command(uint8_t ogf, uint16_t ocf, char *data) {
         *ptr++ = (uint8_t) strtol((const char *)tmp, NULL, 16);
     }
 
- //   printf("data = %s \n", data);
-
-//    printf("\n");
-    /* Setup filter */
+	if (debugon == 1) {
+    printf("data = %s \n", data);
+	}
+	
     hci_filter_clear(&flt);
     hci_filter_set_ptype(HCI_EVENT_PKT, &flt);
     hci_filter_all_events(&flt);
@@ -88,11 +101,13 @@ void ctrl_command(uint8_t ogf, uint16_t ocf, char *data) {
         perror("HCI filter setup failed");
         exit(EXIT_FAILURE);
     }
-
-//    printf("buf ctr cmd %s\n", buf);
-
- //   printf("sent %02x%02x%02x%02x%s\n", dd, ogf, ocf, len, buf);
-//    printf("sent int %d%d%d%d%02x\n", dd, ogf, ocf, len, &buf);
+    
+	if (debugon == 1) {
+    	printf("buf ctr cmd %s\n", buf);
+    	printf("sent %02x%02x%02x%02x%s\n", dd, ogf, ocf, len, buf);
+    	printf("sent int %d%d%d%d\n", dd, ogf, ocf, len);
+	}
+	
     if (hci_send_cmd(dd, ogf, ocf, len, buf) < 0) {
         hci_close_dev(dd);
         perror("Send failed");
@@ -101,19 +116,119 @@ void ctrl_command(uint8_t ogf, uint16_t ocf, char *data) {
     hci_close_dev(dd);
 }
 
+int hci_write_class_restore(int dd, int to)
+{
+	write_class_of_dev_cp cp;
+	struct hci_request rq;
+	char poo = {'\0'};
+    ctrl_command(0x03, 0x0003, &poo);
+    if (debugon == 1) {
+		printf("\tClass: 0x%02x%02x%02x\n", cls[2], cls[1], cls[0]);
+	}
+	char buff[3];
+	buff[0] = cls[2];
+	buff[1] = cls[1];
+	buff[2] = cls[0];
+	uint32_t cod = strtoul(buff, NULL, 3);
+
+	if (debugon == 1) {
+		printf("cod %d 0x%02x\n", cod, cod);
+	}
+	
+	memset(&rq, 0, sizeof(rq));
+	cp.dev_class[0] = cls[2];
+	cp.dev_class[1] = cls[1];
+	cp.dev_class[2] = cls[0];
+	
+	if (debugon == 1) {
+		printf("dev_class 0x%02x%02x%02x\n", cp.dev_class[0], cp.dev_class[1], cp.dev_class[2]);
+	}
+	
+	rq.ogf    = OGF_HOST_CTL;
+	rq.ocf    = OCF_WRITE_CLASS_OF_DEV;
+	rq.cparam = &cp;
+	rq.clen   = WRITE_CLASS_OF_DEV_CP_SIZE;
+	return hci_send_req(dd, &rq, to);
+}
+
+static void save_class(char *dev_name)
+{
+    int dev_id = hci_devid(dev_name);
+    if (dev_id < 0)
+        dev_id = hci_get_route(NULL);
+
+    int dd = hci_open_dev(dev_id);
+    if (dd < 0) {
+        perror("Could not open device");
+        exit(1);
+    }
+    
+	if (hci_read_class_save(dd, cls, 1000) < 0) {
+		printf("Can't read class of device on hci%d: %s (%d)\n",
+					dev_id, strerror(errno), errno);
+		exit(1);
+	}
+	if (debugon == 1) {
+		printf("\tClass: 0x%02x%02x%02x\n", cls[2], cls[1], cls[0]);
+	}
+	
+	hci_close_dev(dd);
+}
+
+static void restore_class(char *dev_name) {
+    int dev_id = hci_devid(dev_name);
+    if (dev_id < 0)
+        dev_id = hci_get_route(NULL);
+
+    int dd = hci_open_dev(dev_id);
+    if (dd < 0) {
+        perror("Could not open device");
+        exit(1);
+    }
+
+	if (debugon == 1) {
+		printf("\tClass: 0x%02x%02x%02x\n", cls[2], cls[1], cls[0]);
+	}
+	
+	if (hci_write_class_restore(dd, 2000) < 0) {
+		fprintf(stderr, "Can't write local class of device on hci%d: %s (%d)\n",
+					dd, strerror(errno), errno);
+		exit(1);
+	}
+	
+	hci_close_dev(dd);
+}
+
+static int open_device(char *dev_name)
+{
+    int dev_id = hci_devid(dev_name);
+    if (dev_id < 0)
+        dev_id = hci_get_route(NULL);
+
+    int dd = hci_open_dev(dev_id);
+    if (dd < 0) {
+        perror("Could not open device");
+        exit(1);
+    }
+    
+    return dd;
+}
+
 void configure(uint16_t min_interval, uint16_t max_interval)
 {
    char data[MAX_PKT_SIZE];
-//    char setmac[]= {"a000a0000201003a8be8bdd61c0700"};
+
     if(pubmacon == 0) {
     sprintf(data, "%04X%04X%02x%02x%02x000000000000%02x00", htons(min_interval), htons(max_interval), advtype, ownpuborran, puborran, peermap);
     } else if (pubmacon == 1) {
     sprintf(data, "%04X%04X%02x%02x%02x%s%02x00", htons(min_interval), htons(max_interval), advtype, ownpuborran, puborran, pubmac, peermap);
     }
-//    printf("conf data = %s\n", data);
- //   ctrl_command(0x08, 0x000a, "00");
+   if (debugon == 1) {
+	   printf("conf data = %s\n", data);
+	   ctrl_command(0x08, 0x000a, "00");
+	}
+	
     ctrl_command(0x08, 0x0006, data);
-//  ctrl_command(0x08, 0x0006, setmac);
 }
 
 void advertise_on(bool on)
@@ -124,29 +239,16 @@ void advertise_on(bool on)
 void set_advertisement_data(char *data)
 {
     char alldata[64];
-//    printf("set adv data = %s \n", data);
+	if (debugon == 1) {
+	    printf("set adv data = %s \n", data);
+	}
+	
     sprintf(alldata, "%s%s", DEFAULT_ADV_HEADER, data);
     for (int i = strlen(alldata); i <= 63; i++) {
         alldata[i] = '0'; //a000a0000201003a8be8bdd61c0700"};
     }
- //   alldata[63] = 0x00;
-//    printf("set adv alldata = %s \n", alldata);
-//  a000a0000201003a8be8bdd61c0700"};a000a0000201003a8be8bdd61c0700"};  ctrl_command(0x08, 0x000a, "00");
-//    char setmac[32] = {'0'};  //= {"A000A0000000003AB5E8BDD61C0700"};
-//    if(pubmacon == 0) {
-//    sprintf(setmac, "%04X%04X%02x%02x%02x000000000000%02x00", htons(ble_min_interval), htons(ble_max_interval), advtype, ownpuborran, puborran, peermap);
-//    sprintf(setmac, "a000a0000201003a8be8bdd61c0700");
-//    } else if (pubmacon == 1) {
-//    sprintf(setmac, "%04X%04X%02x%02x%02x%s%02x00", htons(ble_min_interval), htons(ble_max_interval), advtype, ownpuborran, puborran, pubmac, peermap);
-//    sprintf(setmac, "a000a0000201003a8be8bdd61c0700");
-//    }
-    
-//    printf("setmac %s\n", setmac);
 
     ctrl_command(0x08, 0x0008, alldata);
- 
-//    ctrl_command(0x08, 0x000a, "01");
-    
 }
 
 void seteventmask(void) {
@@ -184,7 +286,22 @@ int read_advertise(int dd, uint8_t *data, int datalen)
 
 int print_advertising_devices(int dd) {
     struct sigaction sa;
+   	struct hci_version ver;
     unsigned char dat[MAX_PKT_SIZE];
+
+    if (hci_read_local_version(dd, &ver, 1000) < 0) {
+		fprintf(stderr, "Can't read version info for hci%d: %s (%d)\n",
+						dd, strerror(errno), errno);
+	}
+
+	if (debugon == 1) {
+		printf("Manufacturer:   %s (%d)\n",
+				bt_compidtostr(ver.manufacturer), ver.manufacturer);
+	}
+	
+    if(ver.manufacturer == 2) {
+    	seteventmask();
+    }
 
     memset(&sa, 0, sizeof(sa));
     sa.sa_flags = SA_NOCLDSTOP;
@@ -213,6 +330,7 @@ void lescan_close(int dd)
         exit(1);
     }
     hci_close_dev(dd);
+    printf("scan stopped, device closed\n"); 
 }
 
 int lescan_setup() {
@@ -348,11 +466,9 @@ int main(int argc, char **argv) {
         
         case 'a':
             mac2 = optarg;
-          //  sprintf(pubmac,"%02x%02x%02x%02x%02x%02x",  optarg[10,11], optarg[8,9], optarg[6],7], optarg[4,5], optarg[2,3], optarg[0,1]);
             for (int p = 0; p < 12; p++) {
             pubmac[p] = mac2[p];
             }
-            // printf("pubmac %s\n", pubmac);
             break;
                       
         case 'h':
@@ -360,19 +476,23 @@ int main(int argc, char **argv) {
             mode = 0;
         }
     }
-//    printf("ble_min_interval: %d\n", ble_min_interval);
-//    printf("ble_max_interval: %d\n", ble_max_interval);
-
+    
+    if (debugon == 1) {
+    	printf("ble_min_interval: %d\n", ble_min_interval);
+    	printf("ble_max_interval: %d\n", ble_max_interval);
+	}
+	
     if (mode == 0) {
         usage();
         exit(0);
     } else if (mode == 1) {
         char poo = {'\0'};
+        save_class(hint);
         ctrl_command(0x03, 0x0003, &poo);
         int dd = lescan_setup();
-        seteventmask();
         print_advertising_devices(dd);
         lescan_close(dd);
+        restore_class(hint);
     } else if (mode == 2) {
         char poo = {'\0'};
         ctrl_command(0x03, 0x0003, &poo);
