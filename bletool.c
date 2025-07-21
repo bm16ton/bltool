@@ -125,16 +125,7 @@ int hci_write_class_restore(int dd, int to)
     if (debugon == 1) {
 		printf("\tClass: 0x%02x%02x%02x\n", cls[2], cls[1], cls[0]);
 	}
-	char buff[3];
-	buff[0] = cls[2];
-	buff[1] = cls[1];
-	buff[2] = cls[0];
-	uint32_t cod = strtoul(buff, NULL, 3);
 
-	if (debugon == 1) {
-		printf("cod %d 0x%02x\n", cod, cod);
-	}
-	
 	memset(&rq, 0, sizeof(rq));
 	cp.dev_class[0] = cls[2];
 	cp.dev_class[1] = cls[1];
@@ -299,7 +290,11 @@ int print_advertising_devices(int dd) {
 				bt_compidtostr(ver.manufacturer), ver.manufacturer);
 	}
 	
+		printf("Manufacturer:   %s (%d)\n",
+				bt_compidtostr(ver.manufacturer), ver.manufacturer);
+
     if(ver.manufacturer == 2) {
+		printf("Entering intel seteventmask\n");
     	seteventmask();
     }
 
@@ -485,17 +480,17 @@ int main(int argc, char **argv) {
     if (mode == 0) {
         usage();
         exit(0);
-    } else if (mode == 1) {
-        char poo = {'\0'};
-        save_class(hint);
-        ctrl_command(0x03, 0x0003, &poo);
+    } 
+
+    char poo = {'\0'};
+    save_class(hint);
+    ctrl_command(0x03, 0x0003, &poo);
+
+   if (mode == 1) {
         int dd = lescan_setup();
         print_advertising_devices(dd);
         lescan_close(dd);
-        restore_class(hint);
     } else if (mode == 2) {
-        char poo = {'\0'};
-        ctrl_command(0x03, 0x0003, &poo);
         configure(ble_min_interval, ble_max_interval);
         set_advertisement_data(send_data);
         advertise_on(true);
@@ -505,4 +500,6 @@ int main(int argc, char **argv) {
         printf("ERROR: we shouldn't be here\n");
         exit(1);
     }
+	printf("Restoring class\n");
+	restore_class(hint);
 }
