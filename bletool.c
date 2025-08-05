@@ -15,6 +15,11 @@
 #include <bluetooth.h>
 #include <hci.h>
 #include <hci_lib.h>
+#include <getopt.h>
+#include <sys/param.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
 
 #define DEVICE_NAME   "hci0"
 #define DEFAULT_ADV_HEADER "1F"
@@ -34,6 +39,8 @@ int ownpuborran = 0x01;
 int peermap = 0x07;
 int filtpol = 0x00;
 uint8_t cls[3];
+char name[249];
+int dev_id;
 
 static int open_device(char *dev_name);
 
@@ -53,6 +60,43 @@ static void hex_dump(char *pref, unsigned char *buf, int len)
     printf("\n");
 }
 
+static void cmd_up(int ctl, int hdev, char *opt)
+{
+	/* Start HCI device */
+	if (ioctl(ctl, HCIDEVUP, hdev) < 0) {
+		if (errno == EALREADY)
+			return;
+		fprintf(stderr, "Can't init device hci%d: %s (%d)\n",
+						hdev, strerror(errno), errno);
+		exit(1);
+	}
+}
+
+static void cmd_down(int ctl, int hdev, char *opt)
+{
+	/* Stop HCI device */
+	if (ioctl(ctl, HCIDEVDOWN, hdev) < 0) {
+		fprintf(stderr, "Can't down device hci%d: %s (%d)\n",
+						hdev, strerror(errno), errno);
+		exit(1);
+	}
+}
+
+static void cmd_reset(int ctl, int hdev)
+{
+	/* Reset HCI device */
+#if 0
+	if (ioctl(ctl, HCIDEVRESET, hdev) < 0 ){
+		fprintf(stderr, "Reset failed for device hci%d: %s (%d)\n",
+						hdev, strerror(errno), errno);
+		exit(1);
+	}
+#endif
+	cmd_down(ctl, hdev, "down");
+	cmd_up(ctl, hdev, "up");
+}
+
+/*
 int hci_read_class_save(int dd, uint8_t *cls, int to)
 {
 	read_class_of_dev_rp rp;
@@ -75,7 +119,7 @@ int hci_read_class_save(int dd, uint8_t *cls, int to)
 	memcpy(cls, rp.dev_class, 3);
 	return 0;
 }
-
+*/
 void ctrl_command(uint8_t ogf, uint16_t ocf, char *data) {
     unsigned char buf[HCI_MAX_EVENT_SIZE], *ptr = buf, tmp[2];
     struct hci_filter flt;
@@ -115,7 +159,7 @@ void ctrl_command(uint8_t ogf, uint16_t ocf, char *data) {
     }
     hci_close_dev(dd);
 }
-
+/*
 int hci_write_class_restore(int dd, int to)
 {
 	write_class_of_dev_cp cp;
@@ -126,10 +170,16 @@ int hci_write_class_restore(int dd, int to)
 		printf("\tClass: 0x%02x%02x%02x\n", cls[2], cls[1], cls[0]);
 	}
 
+	if (hci_write_local_name(dd, name, 2000) < 0) {
+		fprintf(stderr, "Can't change local name on hci%d: %s (%d)\n",
+					dev_id, strerror(errno), errno);
+		exit(1);
+	}
+
 	memset(&rq, 0, sizeof(rq));
-	cp.dev_class[0] = cls[2];
-	cp.dev_class[1] = cls[1];
-	cp.dev_class[2] = cls[0];
+	cp.dev_class[0] = cls[0]; // cls[2];
+	cp.dev_class[1] = cls[1]; // cls[1];
+	cp.dev_class[2] = cls[2]; //cls[0];
 	
 	if (debugon == 1) {
 		printf("dev_class 0x%02x%02x%02x\n", cp.dev_class[0], cp.dev_class[1], cp.dev_class[2]);
@@ -144,7 +194,7 @@ int hci_write_class_restore(int dd, int to)
 
 static void save_class(char *dev_name)
 {
-    int dev_id = hci_devid(dev_name);
+    dev_id = hci_devid(dev_name);
     if (dev_id < 0)
         dev_id = hci_get_route(NULL);
 
@@ -159,6 +209,22 @@ static void save_class(char *dev_name)
 					dev_id, strerror(errno), errno);
 		exit(1);
 	}
+
+		if (hci_read_local_name(dd, sizeof(name), name, 1000) < 0) {
+			fprintf(stderr, "Can't read local name on hci%d: %s (%d)\n",
+						dev_id, strerror(errno), errno);
+			exit(1);
+		}
+
+	printf("local name = %s\n", name);
+
+		for (int i = 0; i < 248 && name[i]; i++) {
+			if ((unsigned char) name[i] < 32 || name[i] == 127)
+				name[i] = '.';
+		}
+
+		name[248] = '\0';
+
 	if (debugon == 1) {
 		printf("\tClass: 0x%02x%02x%02x\n", cls[2], cls[1], cls[0]);
 	}
@@ -167,7 +233,7 @@ static void save_class(char *dev_name)
 }
 
 static void restore_class(char *dev_name) {
-    int dev_id = hci_devid(dev_name);
+    dev_id = hci_devid(dev_name);
     if (dev_id < 0)
         dev_id = hci_get_route(NULL);
 
@@ -189,10 +255,10 @@ static void restore_class(char *dev_name) {
 	
 	hci_close_dev(dd);
 }
-
+*/
 static int open_device(char *dev_name)
 {
-    int dev_id = hci_devid(dev_name);
+    dev_id = hci_devid(dev_name);
     if (dev_id < 0)
         dev_id = hci_get_route(NULL);
 
@@ -483,7 +549,7 @@ int main(int argc, char **argv) {
     } 
 
     char poo = {'\0'};
-    save_class(hint);
+//    save_class(hint);
     ctrl_command(0x03, 0x0003, &poo);
 
    if (mode == 1) {
@@ -500,6 +566,13 @@ int main(int argc, char **argv) {
         printf("ERROR: we shouldn't be here\n");
         exit(1);
     }
-	printf("Restoring class\n");
-	restore_class(hint);
+	int ctl;
+	   ctrl_command(0x03, 0x0003, &poo);
+	if ((ctl = socket(AF_BLUETOOTH, SOCK_RAW, BTPROTO_HCI)) < 0) {
+		perror("Can't open HCI socket.");
+		exit(1);
+	}
+	cmd_reset(ctl, dev_id);
+	close(ctl);
+	printf("Device Reset\n");
 }
