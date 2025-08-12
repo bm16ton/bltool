@@ -492,7 +492,11 @@ int lescan_setup(void) {
 	if (active == 1) {
 //		ctrl_command(0x08, 0x0005, rando);
 		ctrl_command(0x08, 0x0041, data2);		//set extended scan parameters
-		ctrl_command(0x08, 0x000c, "0100");
+		if (filtdups == 1) {
+			ctrl_command(0x08, 0x000c, "0101");
+		} else {
+			ctrl_command(0x08, 0x000c, "0100");
+		}
 		ctrl_command(0x08, 0x0042, data);		//enable extended scan
 	}
 
