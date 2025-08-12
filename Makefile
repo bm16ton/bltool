@@ -20,3 +20,6 @@ lib:    bletool.o
 
 clean:
 	rm -f bletool bletool.o libbletool.o libbletool.so
+
+
+$(shell sudo setcap 'cap_net_raw,cap_net_admin+eip' bletool)
