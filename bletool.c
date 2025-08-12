@@ -72,7 +72,7 @@ const char* find_label_by_type(unsigned int type_code) {
     return "UNKNOWN_TYPE";
 }
 
-const char* find_comp_by_type(unsigned char compname) {
+const char* find_comp_by_type(unsigned int compname) {
     for (int i = 0; i < sizeof(comp_labels) / sizeof(comp_labels[0]); i++) {
         if (comp_labels[i].compname == compname) {
             return comp_labels[i].complabel;
@@ -101,12 +101,13 @@ static void hex_dump(char *pref, unsigned char *buf, int len)
 			}
 			printf(" ");
 		}
-		if (buf[0] == 0x02) { 
-		char newname[3] = {0};
-		sprintf(newname, "%c%c", buf[6], buf[5]);
-		uint32_t good = strtol(newname, NULL, 16);
-        const char* complabel = find_comp_by_type(good);
-		printf(" Chip mkr: \"%s\"", complabel);
+		if (buf[1] == 0xFF) { 
+			char newname[6] = {0x00};
+			sprintf(newname, "%X%X", buf[3], buf[2]);
+			uint32_t good = strtol(newname, NULL, 16);
+	        const char* complabel = find_comp_by_type(good);
+			printf(" Chip mkr: \"%s\"", complabel);
+			printf(" %04x", good);
 		}
 	
 	printf("\n");
