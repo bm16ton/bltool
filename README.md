@@ -1,3 +1,5 @@
+This is a fork of someone elses project tho unfortunatly i cannot find the originals url. I will look for it more they deserve much credit. All ive done is add some more options, a few general fixes, and an intel AX2x0 fix for receiving passive advertisements. Below is original README
+
 Raw BLE advertisement tool
 ====
 This tool is for receiving/sending raw BLE advertisement messages.
